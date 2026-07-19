@@ -131,6 +131,12 @@ footer.pub b{color:var(--ink)}
   .day-tab .d-topic{display:none}
   .day-tab{padding:10px 2px}
 }
+/* ── 상시 검색줄 ── */
+.quick-row{display:flex;gap:8px;padding:12px 0;border-bottom:1px solid var(--line-soft)}
+.quick-search{flex:1;font-family:var(--sans);font-size:.95rem;padding:10px 14px;
+  border:2px solid var(--line);background:var(--paper);color:var(--ink);box-sizing:border-box}
+.quick-search:focus{outline:2px solid var(--red)}
+
 /* ── 모아 보기 ── */
 .browse-btn{font-family:var(--sans);font-size:.8rem;border:1px solid var(--line-soft);
   background:transparent;padding:7px 12px;cursor:pointer;color:var(--ink)}
@@ -164,7 +170,7 @@ footer.pub b{color:var(--ink)}
   @page{margin:11mm 13mm}
   body{background:#fff;font-size:10.5pt}
   .issue-nav,.day-tabs,.today-note,.std-strip,.slogan,.mast-side,.print-btn,
-  .browse-btn,.tagview,footer.pub,.src-links,.hash-row,
+  .browse-btn,.tagview,.quick-row,footer.pub,.src-links,.hash-row,
   header.masthead{display:none !important}
   article.piece{padding:0;page-break-after:always;animation:none}
   article.piece:last-of-type{page-break-after:auto}
@@ -222,6 +228,11 @@ footer.pub b{color:var(--ink)}
 
 <div class="std-strip" id="stdStrip"></div>
 
+<div class="quick-row">
+  <input class="quick-search" id="quickSearch" type="search"
+    placeholder="🔎 기사 찾기 — 낱말을 입력하면 지금까지의 모든 기사에서 찾아요 (예: 폭염, 우주)">
+</div>
+
 <div class="day-tabs" role="tablist" aria-label="요일별 기사" id="dayTabs"></div>
 <p class="today-note" id="todayNote"><button class="print-btn" onclick="window.print()">🖨 학습지로 인쇄</button></p>
 
@@ -252,6 +263,15 @@ async function boot(){
   issueIdx = ISSUES.length - 1;
   initView();
   render();
+  document.getElementById("quickSearch").addEventListener("input", e => {
+    browse.q = e.target.value;
+    if (view.mode !== "browse"){
+      view = { mode: "browse", dayIdx: view.dayIdx };
+      render();
+    } else {
+      renderBrowseParts();
+    }
+  });
 }
 
 /* ═══════ 상태 ═══════ */
@@ -391,8 +411,8 @@ function render(){
 }
 
 /* ═══════ 동작 ═══════ */
-function selectDay(i){ view={mode:"day",dayIdx:i}; render(); }
-function selectAll(){ view={mode:"all",dayIdx:view.dayIdx}; render(); }
+function selectDay(i){ exitBrowse(); view={mode:"day",dayIdx:i}; render(); }
+function selectAll(){ exitBrowse(); view={mode:"all",dayIdx:view.dayIdx}; render(); }
 function goHome(){ issueIdx=ISSUES.length-1; initView(); render(); return false; }
 document.getElementById("prevBtn").onclick=()=>{ if(issueIdx>0){issueIdx--; view={mode:"all",dayIdx:0}; render();} };
 document.getElementById("nextBtn").onclick=()=>{ if(issueIdx<ISSUES.length-1){issueIdx++; initView(); render();} };
@@ -408,12 +428,19 @@ function allArticles(){
 }
 
 function openBrowse(tag){
-  browse = { tag: tag || null, q: "" };
+  browse = { tag: tag || null, q: document.getElementById("quickSearch").value };
   view = { mode: "browse", dayIdx: view.dayIdx };
   render();
 }
 
+function exitBrowse(){
+  browse = { tag: null, q: "" };
+  const inp = document.getElementById("quickSearch");
+  if (inp) inp.value = "";
+}
+
 function goToArticle(ii, ai){
+  exitBrowse();
   issueIdx = ii;
   view = { mode: "day", dayIdx: ai };
   render();
@@ -424,18 +451,10 @@ function renderBrowse(){
   if (!document.getElementById("tagview")){
     main.innerHTML = `
     <div class="tagview" id="tagview">
-      <input class="tag-search" id="tagSearch" type="search"
-        placeholder="찾고 싶은 낱말을 입력해 보세요 (예: 폭염, 금리, 우주)">
       <div class="chip-cloud" id="chipCloud"></div>
       <div id="browseResults"></div>
     </div>`;
-    // 입력창은 다시 그리지 않는다 — 한글 조합이 끊기지 않게 결과만 갱신
-    document.getElementById("tagSearch").addEventListener("input", e => {
-      browse.q = e.target.value;
-      renderBrowseParts();
-    });
   }
-  document.getElementById("tagSearch").value = browse.q;
   renderBrowseParts();
 }
 
