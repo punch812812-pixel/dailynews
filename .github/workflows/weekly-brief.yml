@@ -2,9 +2,8 @@ name: 주간 브리핑 자동 발행
 
 on:
   schedule:
-    # 매주 금요일 06:00 KST (= 목요일 21:00 UTC)
-    - cron: '0 21 * * 4'
-  workflow_dispatch: {}   # 수동 실행 버튼 (테스트용)
+    - cron: '0 21 * * 4'   # 매주 금요일 06:00 KST
+  workflow_dispatch: {}     # 수동 실행 버튼 (테스트용)
 
 permissions:
   contents: write
@@ -22,12 +21,13 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: 브리핑 생성 (수집 → 검증 → AI 검수)
+      - name: 브리핑 생성 (수집 → 선별 → 검증 → AI 검수)
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
         run: python pipeline/generate_issue.py
 
-      # ── 모드 A: 완전 자동 발행 (저장소 Variables에서 AUTO_PUBLISH = true)
       - name: 자동 커밋·배포
         if: ${{ vars.AUTO_PUBLISH == 'true' }}
         run: |
@@ -37,16 +37,15 @@ jobs:
           git commit -m "자동 발행: $(date +%Y-%m-%d) 호"
           git push
 
-      # ── 모드 B: 원탭 승인 발행 (기본값) — PR이 만들어지고, 병합하면 배포됨
       - name: 승인용 PR 생성
         if: ${{ vars.AUTO_PUBLISH != 'true' }}
         uses: peter-evans/create-pull-request@v6
         with:
-          commit-message: "발행 대기: $(date +%Y-%m-%d) 호"
+          commit-message: "발행 대기 호"
           title: "이번 주 브리핑 발행 승인 요청"
           body: |
             자동 생성된 이번 주 호입니다.
-            Files changed 탭에서 기사를 훑어보고, 괜찮으면 **Merge** 버튼을 누르세요.
+            Files changed 탭에서 기사를 훑어보고, 괜찮으면 Merge 버튼을 누르세요.
             병합하는 순간 사이트에 발행됩니다. 문제가 있으면 PR을 닫으면 됩니다(결호).
           branch: weekly-brief
           delete-branch: true
