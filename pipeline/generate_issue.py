@@ -33,6 +33,21 @@ QUERIES = [
 ]
 
 # ── 0단계: 네이버 뉴스 수집 ───────────────────────────
+def load_whitelist():
+    """신뢰 매체 도메인 목록. 파일이 없으면 필터 없이 경고만 (금요일 실행이 멈추지 않도록)"""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "source_whitelist.json")
+    try:
+        return json.load(open(path)).get("domains", [])
+    except FileNotFoundError:
+        print("   경고: source_whitelist.json이 없어 출처 필터 없이 진행합니다")
+        return []
+
+def domain_ok(link, whitelist):
+    if not whitelist:
+        return True
+    host = urllib.parse.urlparse(link).netloc.lower()
+    return any(host == d or host.endswith("." + d) for d in whitelist)
+
 def strip_tags(s):
     return re.sub(r"<[^>]+>", "", s).replace("&quot;", '"').replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
 
@@ -46,7 +61,8 @@ def fetch_naver(query, display=20):
 
 def collect_candidates(days=7, cap=60):
     cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
-    seen, out = set(), []
+    whitelist = load_whitelist()
+    seen, out, filtered = set(), [], 0
     for q in QUERIES:
         try:
             items = fetch_naver(q)
@@ -56,6 +72,9 @@ def collect_candidates(days=7, cap=60):
         for it in items:
             link = it.get("originallink") or it.get("link", "")
             if not link or link in seen:
+                continue
+            if not domain_ok(link, whitelist):
+                filtered += 1
                 continue
             try:
                 pub = parsedate_to_datetime(it["pubDate"])
@@ -73,6 +92,8 @@ def collect_candidates(days=7, cap=60):
                 "pub": pub_label,
                 "query": q,
             })
+    if filtered:
+        print(f"   화이트리스트 밖 매체 {filtered}건 제외")
     return out[:cap]
 
 # ── Gemini 호출 ──────────────────────────────────────
@@ -224,6 +245,12 @@ def validate(issue, standards, candidates):
             for _n, u in a["sources"]:
                 if u not in cand_links:
                     errs.append("출처 URL이 수집 후보 목록에 없음 (조작·오류 가능)")
+        # 보도일이 발행일(오늘)보다 미래이면 오류 — AI의 날짜 오기 방지
+        m = re.search(r"(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})", a["reportDate"])
+        if not m:
+            errs.append(f"보도일 형식 오류: {a['reportDate']}")
+        elif datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3))) > datetime.date.today():
+            errs.append(f"보도일이 미래 날짜: {a['reportDate']}")
         results.append((a, not errs, errs))
     return results
 
