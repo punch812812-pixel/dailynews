@@ -17,7 +17,7 @@ from email.utils import parsedate_to_datetime
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 NAVER_ID = os.environ.get("NAVER_CLIENT_ID")
 NAVER_SECRET = os.environ.get("NAVER_CLIENT_SECRET")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "")   # 비워 두면 자동 탐지
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ISSUES_PATH = os.path.join(ROOT, "data", "issues.json")
 STANDARDS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "standards.json")
@@ -76,9 +76,40 @@ def collect_candidates(days=7, cap=60):
     return out[:cap]
 
 # ── Gemini 호출 ──────────────────────────────────────
+_model_cache = None
+
+def pick_model():
+    """구글 API에서 현재 사용 가능한 모델 목록을 받아 flash 계열 최신 모델을 자동 선택"""
+    global _model_cache
+    if _model_cache:
+        return _model_cache
+    if GEMINI_MODEL:                       # 환경변수로 지정했으면 그대로 사용
+        _model_cache = GEMINI_MODEL
+        return _model_cache
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}&pageSize=200"
+    with urllib.request.urlopen(url, timeout=60) as r:
+        models = json.loads(r.read()).get("models", [])
+    names = []
+    for m in models:
+        name = m.get("name", "").replace("models/", "")
+        methods = m.get("supportedGenerationMethods", [])
+        if "generateContent" not in methods:
+            continue
+        if "flash" not in name:
+            continue
+        # 특수 용도(이미지·음성·실시간·경량 8b 등) 제외
+        if any(x in name for x in ["image", "tts", "live", "audio", "8b", "lite", "exp", "preview", "thinking"]):
+            continue
+        names.append(name)
+    if not names:
+        raise RuntimeError("사용 가능한 flash 모델을 찾지 못했습니다. GEMINI_MODEL 환경변수로 직접 지정하세요.")
+    _model_cache = sorted(names)[-1]       # 버전 숫자가 큰 것이 뒤로 정렬됨
+    print(f"   사용 모델: {_model_cache}")
+    return _model_cache
+
 def call_gemini(system, user, max_tokens=16000):
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}")
+           f"{pick_model()}:generateContent?key={GEMINI_KEY}")
     body = {
         "system_instruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
