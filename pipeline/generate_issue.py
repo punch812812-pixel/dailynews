@@ -312,6 +312,17 @@ def generate_supplement(standards, candidates, exclude_ids, existing, need):
             f"[후보 기사 목록]\n{cand_text}\n\n[사용 가능한 성취기준 목록]\n{std_text}")
     return parse_json_block(call_gemini(GENERATION_SYSTEM, user))
 
+def normalize_report_dates(issue, candidates):
+    """AI가 쓴 reportDate를 무시하고 후보의 실제 발행일로 덮어쓴다 (형식 오류 원천 차단)"""
+    by_id = {c["id"]: c for c in candidates}
+    by_link = {c["link"]: c for c in candidates}
+    for a in issue.get("articles", []):
+        c = by_id.get(a.get("candidate_id"))
+        if not c:  # candidate_id가 없으면 출처 링크로 역추적
+            c = next((by_link[u] for _n, u in a.get("sources", []) if u in by_link), None)
+        if c and c.get("pub"):
+            a["reportDate"] = f"{c['pub']} 보도"
+
 # ── 2단계: 기계 검증 ─────────────────────────────────
 def validate(issue, standards, candidates):
     cand_links = {c["link"] for c in candidates}
@@ -370,7 +381,7 @@ def validate(issue, standards, candidates):
             if copied:
                 errs.append("원문 문장을 그대로 옮김 (재서술 필요)")
         # 보도일이 발행일(오늘)보다 미래이면 오류 — AI의 날짜 오기 방지
-        m = re.search(r"(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})", a["reportDate"])
+        m = re.search(r"(\d{4})[.\-]\s*(\d{1,2})[.\-]\s*(\d{1,2})", a["reportDate"])
         if not m:
             errs.append(f"보도일 형식 오류: {a['reportDate']}")
         elif datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3))) > datetime.date.today():
@@ -447,6 +458,7 @@ def main():
 
     print(f"── 2단계 전: 집필 (Gemini)")
     issue = with_retry(lambda: generate_issue(standards, picked), "집필")
+    normalize_report_dates(issue, candidates)
     print(f"   초안 기사 {len(issue.get('articles', []))}건")
 
     print("── 2단계: 기계 검증")
@@ -483,6 +495,7 @@ def main():
             used = {a.get("candidate_id") for a in issue["articles"]}
             titles = [a["title"] for a in final] + recent_titles
             supp = with_retry(lambda: generate_supplement(standards, candidates, used, titles, need), "보충 생성")
+            normalize_report_dates(supp, candidates)
             supp_passed = []
             for a, ok, errs in validate(supp, standards, candidates):
                 print(f"   [보충] {a.get('title','?')[:30]} → {'통과' if ok else '탈락'} {errs or ''}")
