@@ -161,25 +161,34 @@ footer.pub b{color:var(--ink)}
 .print-btn:hover{border-color:var(--ink)}
 .ws-only{display:none}
 @media print{
-  @page{margin:14mm}
-  body{background:#fff;font-size:11pt}
+  @page{margin:11mm 13mm}
+  body{background:#fff;font-size:10.5pt}
   .issue-nav,.day-tabs,.today-note,.std-strip,.slogan,.mast-side,.print-btn,
-  .browse-btn,.tagview,footer.pub,.src-links{display:none !important}
-  h1.brand{font-size:16pt}
-  .mast-rule{margin-top:8px}
-  article.piece{padding:14px 0 0;page-break-after:always;animation:none}
+  .browse-btn,.tagview,footer.pub,.src-links,.hash-row,
+  header.masthead{display:none !important}
+  article.piece{padding:0;page-break-after:always;animation:none}
   article.piece:last-of-type{page-break-after:auto}
   .piece-end,.all-divider{display:none}
-  h2.headline{font-size:15pt}
-  .piece p.para{font-size:11pt;line-height:1.9}
-  .wordhelp,.thinkbox{border-color:#999;background:#fff}
+  .piece-head{margin-bottom:6px}
+  .meta-row{margin:8px 0 5px}
+  h2.headline{font-size:13.5pt;line-height:1.3}
+  .deck{font-size:10pt;margin-top:5px}
+  .body-rule{margin:10px 0}
+  .piece p.para{font-size:10.5pt;line-height:1.72;margin-bottom:.85em}
+  .wordhelp,.thinkbox{border-color:#999;background:#fff;padding:8px 12px;margin-top:10px}
+  .wordhelp h3,.thinkbox h3{margin-bottom:5px;font-size:8.5pt}
+  .wordhelp dl,.wordhelp .w-item,.thinkbox p{font-size:9.5pt;line-height:1.6}
   .thinkbox{border-left:4px solid #000}
+  .thinkbox h3::before{content:"2. "}
+  .std-tags{margin-top:9px}
+  .std-tag{font-size:8.5pt;padding:2px 8px}
   .ws-only{display:block}
-  .ws-head{display:flex;justify-content:space-between;font-size:9.5pt;
-    border-bottom:1px solid #000;padding-bottom:4px;margin-bottom:6px}
-  .ws-summary{margin-top:14px;border:1px solid #999;padding:10px 14px}
-  .ws-summary .ws-label{font-size:9pt;letter-spacing:.28em;font-weight:700;margin-bottom:6px}
-  .ws-line{border-bottom:1px dotted #888;height:26px}
+  .ws-head{display:flex;justify-content:space-between;font-size:9pt;
+    border-bottom:1.5px solid #000;padding-bottom:3px;margin-bottom:8px}
+  .ws-summary{margin-top:10px;border:1px solid #999;padding:8px 12px}
+  .ws-summary .ws-label{font-size:8.5pt;letter-spacing:.2em;font-weight:700;margin-bottom:4px}
+  .ws-line{border-bottom:1px dotted #888;height:23px}
+  .ws-src{font-size:8pt;color:#555;margin-top:8px}
 }
 
 @media (prefers-reduced-motion:no-preference){
@@ -279,18 +288,19 @@ function articleHTML(a, issue){
       <h3>낱말 도움</h3>
       ${a.words.map(([w,d])=>`<div class="w-item"><dt>${esc(w)}</dt><dd> — ${esc(d)}</dd></div>`).join("")}
     </section>
+    <div class="ws-only ws-summary">
+      <div class="ws-label">1. 한 줄 요약 — 이 기사에서 가장 중요한 내용을 한 문장으로 써 보세요</div>
+      <div class="ws-line"></div><div class="ws-line"></div>
+    </div>
     <section class="thinkbox">
-      <h3>생각해 보기</h3>
+      <h3><span class="ws-only-inline"></span>생각해 보기</h3>
       <p>${esc(a.think)}</p>
     </section>
     <div class="std-tags">
       ${a.standards.map(([c,l])=>`<span class="std-tag"><b>[${c}]</b>${esc(l)}</span>`).join("")}
     </div>
     <div class="hash-row">${a.tags.map(t=>`<span onclick="openBrowse('${esc(t)}')" title="이 주제 기사 모아 보기">#${esc(t)}</span>`).join("")}</div>
-    <div class="ws-only ws-summary">
-      <div class="ws-label">한 줄 요약 — 이 기사에서 가장 중요한 내용을 한 문장으로 써 보세요</div>
-      <div class="ws-line"></div><div class="ws-line"></div>
-    </div>
+    <div class="ws-only ws-src">출처: ${a.sources.map(([n,_u])=>esc(n)).join(" · ")} (원문 기사를 어린이 눈높이로 다시 쓴 글입니다)</div>
   </article>`;
 }
 
@@ -405,8 +415,27 @@ function goToArticle(ii, ai){
 }
 
 function renderBrowse(){
+  const main = document.getElementById("main");
+  if (!document.getElementById("tagview")){
+    main.innerHTML = `
+    <div class="tagview" id="tagview">
+      <input class="tag-search" id="tagSearch" type="search"
+        placeholder="찾고 싶은 낱말을 입력해 보세요 (예: 폭염, 금리, 우주)">
+      <div class="chip-cloud" id="chipCloud"></div>
+      <div id="browseResults"></div>
+    </div>`;
+    // 입력창은 다시 그리지 않는다 — 한글 조합이 끊기지 않게 결과만 갱신
+    document.getElementById("tagSearch").addEventListener("input", e => {
+      browse.q = e.target.value;
+      renderBrowseParts();
+    });
+  }
+  document.getElementById("tagSearch").value = browse.q;
+  renderBrowseParts();
+}
+
+function renderBrowseParts(){
   const items = allArticles();
-  // 태그 칩: 빈도순 상위 15개 (첫 태그는 대주제라 자연히 상위에 뭉침)
   const freq = {};
   items.forEach(({a}) => a.tags.forEach(t => freq[t] = (freq[t]||0)+1));
   const top = Object.entries(freq).sort((x,y)=>y[1]-x[1]).slice(0,15);
@@ -421,31 +450,19 @@ function renderBrowse(){
     return true;
   });
 
-  document.getElementById("main").innerHTML = `
-  <div class="tagview">
-    <input class="tag-search" id="tagSearch" type="search"
-      placeholder="찾고 싶은 낱말을 입력해 보세요 (예: 폭염, 금리, 우주)" value="${esc(browse.q)}">
-    <div class="chip-cloud">
-      ${top.map(([t,n])=>`<button class="chip ${browse.tag===t?'on':''}"
-        onclick="browse.tag = browse.tag==='${esc(t)}' ? null : '${esc(t)}'; render()">
-        #${esc(t)}<b>${n}</b></button>`).join("")}
-    </div>
-    <p class="result-count">${browse.tag?`#${esc(browse.tag)} · `:""}${q?`'${esc(q)}' 검색 · `:""}기사 ${hit.length}건</p>
-    ${hit.map(({iss,ii,ai,a})=>`
+  document.getElementById("chipCloud").innerHTML =
+    top.map(([t,n])=>`<button class="chip ${browse.tag===t?'on':''}"
+      onclick="browse.tag = browse.tag==='${esc(t)}' ? null : '${esc(t)}'; renderBrowseParts()">
+      #${esc(t)}<b>${n}</b></button>`).join("");
+
+  document.getElementById("browseResults").innerHTML =
+    `<p class="result-count">${browse.tag?`#${esc(browse.tag)} · `:""}${q?`'${esc(q)}' 검색 · `:""}기사 ${hit.length}건</p>`
+    + (hit.map(({iss,ii,ai,a})=>`
       <button class="result-item" onclick="goToArticle(${ii},${ai})">
         <div class="result-meta">${iss.dateLabel} 제${iss.no}호 · ${a.day}요일 · ${esc(a.topic)}</div>
         <div class="result-title">${esc(a.title)}</div>
         <div class="result-deck">${esc(a.deck)}</div>
-      </button>`).join("") || '<p class="result-count">해당하는 기사가 아직 없어요.</p>'}
-  </div>`;
-  const inp = document.getElementById("tagSearch");
-  inp.addEventListener("input", e => {
-    browse.q = e.target.value;
-    // 입력 중 커서 유지를 위해 목록만 갱신
-    renderBrowse();
-    const el = document.getElementById("tagSearch");
-    el.focus(); el.setSelectionRange(el.value.length, el.value.length);
-  }, { once: true });
+      </button>`).join("") || '<p class="result-count">해당하는 기사가 아직 없어요.</p>');
 }
 
 /* 초기 뷰: 평일이면 오늘 기사, 주말이면 전체 */
