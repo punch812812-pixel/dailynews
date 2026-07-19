@@ -168,16 +168,19 @@ def parse_json_block(text):
     raise ValueError("JSON 괄호가 닫히지 않았습니다")
 
 def with_retry(fn, name, tries=3, wait=20):
-    """일시적 API 오류(잘린 응답, 형식 오류, 네트워크)에 대해 자동 재시도"""
+    """일시적 API 오류에 자동 재시도. 429(호출 한도)는 분당 한도 리셋을 기다려 75초 대기"""
     import time
     for attempt in range(1, tries + 1):
         try:
             return fn()
         except (ValueError, RuntimeError, json.JSONDecodeError, urllib.error.URLError) as e:
-            print(f"   {name} {attempt}차 시도 실패: {e}")
+            rate_limited = "429" in str(e)
+            delay = 75 if rate_limited else wait
+            note = " — 호출 한도 초과, 75초 대기 후 재시도" if rate_limited else ""
+            print(f"   {name} {attempt}차 시도 실패: {e}{note}")
             if attempt == tries:
                 raise
-            time.sleep(wait)
+            time.sleep(delay)
 
 # ── 1단계: 선별 ──────────────────────────────────────
 SELECTION_SYSTEM = """너는 초등 5~6학년 뉴스 브리핑의 편집자다. 후보 목록에서 정확히 5건을 고른다.
