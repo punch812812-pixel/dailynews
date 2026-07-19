@@ -131,6 +131,57 @@ footer.pub b{color:var(--ink)}
   .day-tab .d-topic{display:none}
   .day-tab{padding:10px 2px}
 }
+/* ── 모아 보기 ── */
+.browse-btn{font-family:var(--sans);font-size:.8rem;border:1px solid var(--line-soft);
+  background:transparent;padding:7px 12px;cursor:pointer;color:var(--ink)}
+.browse-btn:hover{border-color:var(--ink)}
+.tagview{padding:26px 0}
+.tag-search{width:100%;font-family:var(--sans);font-size:1rem;padding:11px 14px;
+  border:2px solid var(--line);background:var(--paper);color:var(--ink);box-sizing:border-box}
+.tag-search:focus{outline:2px solid var(--red)}
+.chip-cloud{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 6px}
+.chip{font-family:var(--sans);font-size:.85rem;border:1px solid var(--line-soft);
+  background:transparent;padding:6px 12px;cursor:pointer;color:var(--ink)}
+.chip b{color:var(--ink-soft);font-weight:500;font-size:.75rem;margin-left:4px}
+.chip.on{background:var(--ink);color:var(--paper)}
+.chip.on b{color:#CFC9BB}
+.result-count{font-size:.82rem;color:var(--ink-soft);margin:14px 0 4px}
+.result-item{display:block;width:100%;text-align:left;background:transparent;border:0;
+  border-bottom:1px solid var(--line-soft);padding:13px 2px;cursor:pointer;font-family:var(--sans)}
+.result-item:hover{background:var(--box)}
+.result-meta{font-size:.75rem;color:var(--ink-soft);margin-bottom:3px}
+.result-title{font-family:var(--serif);font-weight:700;font-size:1.02rem;color:var(--ink);word-break:keep-all}
+.result-deck{font-size:.85rem;color:var(--ink-soft);margin-top:2px;word-break:keep-all}
+.hash-row span{cursor:pointer}
+.hash-row span:hover{color:var(--red);text-decoration:underline}
+
+/* ── 인쇄(학습지) 모드 ── */
+.print-btn{font-family:var(--sans);font-size:.8rem;border:1px solid var(--line-soft);
+  background:transparent;padding:7px 14px;cursor:pointer;color:var(--ink);margin-left:8px}
+.print-btn:hover{border-color:var(--ink)}
+.ws-only{display:none}
+@media print{
+  @page{margin:14mm}
+  body{background:#fff;font-size:11pt}
+  .issue-nav,.day-tabs,.today-note,.std-strip,.slogan,.mast-side,.print-btn,
+  .browse-btn,.tagview,footer.pub,.src-links{display:none !important}
+  h1.brand{font-size:16pt}
+  .mast-rule{margin-top:8px}
+  article.piece{padding:14px 0 0;page-break-after:always;animation:none}
+  article.piece:last-of-type{page-break-after:auto}
+  .piece-end,.all-divider{display:none}
+  h2.headline{font-size:15pt}
+  .piece p.para{font-size:11pt;line-height:1.9}
+  .wordhelp,.thinkbox{border-color:#999;background:#fff}
+  .thinkbox{border-left:4px solid #000}
+  .ws-only{display:block}
+  .ws-head{display:flex;justify-content:space-between;font-size:9.5pt;
+    border-bottom:1px solid #000;padding-bottom:4px;margin-bottom:6px}
+  .ws-summary{margin-top:14px;border:1px solid #999;padding:10px 14px}
+  .ws-summary .ws-label{font-size:9pt;letter-spacing:.28em;font-weight:700;margin-bottom:6px}
+  .ws-line{border-bottom:1px dotted #888;height:26px}
+}
+
 @media (prefers-reduced-motion:no-preference){
   article.piece{animation:rise .35s ease both}
   @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
@@ -154,19 +205,21 @@ footer.pub b{color:var(--ink)}
   <button class="nav-btn" id="prevBtn">◀ 지난 호</button>
   <span class="issue-now" id="issueNow"></span>
   <button class="nav-btn" id="nextBtn">다음 호 ▶</button>
+  <button class="browse-btn" onclick="openBrowse()">🔎 모아 보기 — 지난 기사 전체</button>
 </nav>
 
 <div class="std-strip" id="stdStrip"></div>
 
 <div class="day-tabs" role="tablist" aria-label="요일별 기사" id="dayTabs"></div>
-<p class="today-note" id="todayNote"></p>
+<p class="today-note" id="todayNote"><button class="print-btn" onclick="window.print()">🖨 학습지로 인쇄</button></p>
 
 <main id="main"></main>
 
 <footer class="pub">
   <div class="inner">
     <b>발행 정보</b> — 매주 금요일 발행. 월~금 아침활동에서 하루 한 건씩 읽습니다. 좋은 기사가 없는 주는 쉬어 갑니다.
-    본문은 어린이 눈높이로 다시 쓴 글이며, 정확한 내용은 원문 링크에서 확인할 수 있습니다.
+    본문은 인공지능(AI)이 원문 기사를 어린이 눈높이로 다시 쓴 글입니다. 그래서 원래 기사와 다르거나
+    빠진 내용이 있을 수 있습니다. 정확한 내용은 꼭 원문 링크에서 확인하세요.
   </div>
 </footer>
 
@@ -206,6 +259,7 @@ function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g
 function articleHTML(a, issue){
   return `
   <article class="piece">
+    <div class="ws-only ws-head"><span>어린이 사회 뉴스 브리핑 · ${issue.dateLabel} ${a.day}요일</span><span>____학년 ____반 이름: ______________</span></div>
     <div class="piece-head">
       <span class="section-box">${a.day}요일&nbsp;</span>
       <span class="section-sub">${esc(a.topic)}</span>
@@ -232,13 +286,25 @@ function articleHTML(a, issue){
     <div class="std-tags">
       ${a.standards.map(([c,l])=>`<span class="std-tag"><b>[${c}]</b>${esc(l)}</span>`).join("")}
     </div>
-    <div class="hash-row">${a.tags.map(t=>`<span>#${esc(t)}</span>`).join("")}</div>
+    <div class="hash-row">${a.tags.map(t=>`<span onclick="openBrowse('${esc(t)}')" title="이 주제 기사 모아 보기">#${esc(t)}</span>`).join("")}</div>
+    <div class="ws-only ws-summary">
+      <div class="ws-label">한 줄 요약 — 이 기사에서 가장 중요한 내용을 한 문장으로 써 보세요</div>
+      <div class="ws-line"></div><div class="ws-line"></div>
+    </div>
   </article>`;
+}
+
+function isFreshLatest(){
+  // 최신 호가 7일 이내일 때만 '오늘의 기사' 개념 적용 (결호 주 잘못된 오늘 표시 방지)
+  const latest = ISSUES[ISSUES.length-1];
+  if(!latest) return false;
+  const age = (Date.now() - new Date(latest.date+"T00:00:00")) / 86400000;
+  return age <= 7;
 }
 
 function render(){
   const issue = ISSUES[issueIdx];
-  const tIdx = todayDayIdx();
+  const tIdx = isFreshLatest() ? todayDayIdx() : null;
 
   /* 제호 양옆 */
   document.getElementById("mastLeft").innerHTML =
@@ -248,7 +314,7 @@ function render(){
 
   /* 호 내비 */
   document.getElementById("issueNow").textContent =
-    `${issue.dateLabel} — 5건 (제${issue.no}호)`;
+    `${issue.dateLabel} — ${issue.articles.length}건 (제${issue.no}호)`;
   const prev = document.getElementById("prevBtn"), next = document.getElementById("nextBtn");
   prev.disabled = issueIdx === 0;
   next.disabled = issueIdx === ISSUES.length - 1;
@@ -260,12 +326,13 @@ function render(){
   document.getElementById("stdStrip").innerHTML =
     `이번 호 성취기준 — ` + codes.map(c=>`<b>[${c}]</b>`).join(" · ");
 
-  /* 요일 탭 */
+  /* 요일 탭 — 칸 수를 기사 수 + 전체 1칸에 맞춤 */
   const tabs = document.getElementById("dayTabs");
+  tabs.style.gridTemplateColumns = `repeat(${issue.articles.length + 1}, minmax(0,1fr))`;
   tabs.innerHTML = issue.articles.map((a,i)=>`
     <button class="day-tab" role="tab" aria-selected="${view.mode==="day"&&view.dayIdx===i}"
       onclick="selectDay(${i})">
-      ${tIdx===i && issueIdx===ISSUES.length-1 ? '<span class="today-dot" title="오늘"></span>':''}
+      ${tIdx===i && tIdx<issue.articles.length && issueIdx===ISSUES.length-1 ? '<span class="today-dot" title="오늘"></span>':''}
       <span class="d-name">${a.day}</span>
       <span class="d-topic">${esc(a.topic)}</span>
     </button>`).join("") +
@@ -273,18 +340,31 @@ function render(){
       <span class="d-name">전체</span><span class="d-topic">이번 호 5건</span>
     </button>`;
 
-  /* 오늘 안내 */
-  const note = document.getElementById("todayNote");
+  /* 오늘 안내 — 인쇄 버튼 보존을 위해 문구는 별도 span에 */
+  const noteWrap = document.getElementById("todayNote");
+  let note = document.getElementById("todayMsg");
+  if(!note){
+    note = document.createElement("span");
+    note.id = "todayMsg";
+    noteWrap.insertBefore(note, noteWrap.firstChild);
+  }
   if (view.mode==="day" && tIdx!==null && issueIdx===ISSUES.length-1){
     note.innerHTML = tIdx===view.dayIdx
       ? `<b>●</b> 오늘은 ${DAYS[tIdx]}요일 — 오늘의 기사를 보고 있어요`
       : `<b>●</b> 오늘의 기사는 ${DAYS[tIdx]}요일 기사예요`;
   } else if (tIdx===null && issueIdx===ISSUES.length-1){
     note.textContent = "주말에는 이번 호 전체를 자유롭게 읽어 보세요";
+  } else if (tIdx!==null && tIdx>=issue.articles.length && issueIdx===ISSUES.length-1){
+    note.textContent = `이번 호는 ${issue.articles.length}건 발행 — 오늘은 전체를 자유롭게 읽어 보세요`;
   } else { note.textContent = ""; }
 
   /* 본문 */
   const main = document.getElementById("main");
+  if (view.mode==="browse"){
+    renderBrowse();
+    window.scrollTo({top:0});
+    return;
+  }
   if (view.mode==="day"){
     main.innerHTML = articleHTML(issue.articles[view.dayIdx], issue);
   } else {
@@ -302,10 +382,77 @@ function goHome(){ issueIdx=ISSUES.length-1; initView(); render(); return false;
 document.getElementById("prevBtn").onclick=()=>{ if(issueIdx>0){issueIdx--; view={mode:"all",dayIdx:0}; render();} };
 document.getElementById("nextBtn").onclick=()=>{ if(issueIdx<ISSUES.length-1){issueIdx++; initView(); render();} };
 
+/* ═══════ 모아 보기 (태그 칩 + 검색) ═══════ */
+let browse = { tag: null, q: "" };
+
+function allArticles(){
+  const out = [];
+  ISSUES.forEach((iss, ii) => iss.articles.forEach((a, ai) =>
+    out.push({iss, ii, ai, a})));
+  return out.reverse();   // 최신 먼저
+}
+
+function openBrowse(tag){
+  browse = { tag: tag || null, q: "" };
+  view = { mode: "browse", dayIdx: view.dayIdx };
+  render();
+}
+
+function goToArticle(ii, ai){
+  issueIdx = ii;
+  view = { mode: "day", dayIdx: ai };
+  render();
+}
+
+function renderBrowse(){
+  const items = allArticles();
+  // 태그 칩: 빈도순 상위 15개 (첫 태그는 대주제라 자연히 상위에 뭉침)
+  const freq = {};
+  items.forEach(({a}) => a.tags.forEach(t => freq[t] = (freq[t]||0)+1));
+  const top = Object.entries(freq).sort((x,y)=>y[1]-x[1]).slice(0,15);
+
+  const q = browse.q.trim();
+  const hit = items.filter(({a}) => {
+    if (browse.tag && !a.tags.includes(browse.tag)) return false;
+    if (q){
+      const hay = (a.title + " " + a.deck + " " + a.paras.join(" ") + " " + a.tags.join(" "));
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  document.getElementById("main").innerHTML = `
+  <div class="tagview">
+    <input class="tag-search" id="tagSearch" type="search"
+      placeholder="찾고 싶은 낱말을 입력해 보세요 (예: 폭염, 금리, 우주)" value="${esc(browse.q)}">
+    <div class="chip-cloud">
+      ${top.map(([t,n])=>`<button class="chip ${browse.tag===t?'on':''}"
+        onclick="browse.tag = browse.tag==='${esc(t)}' ? null : '${esc(t)}'; render()">
+        #${esc(t)}<b>${n}</b></button>`).join("")}
+    </div>
+    <p class="result-count">${browse.tag?`#${esc(browse.tag)} · `:""}${q?`'${esc(q)}' 검색 · `:""}기사 ${hit.length}건</p>
+    ${hit.map(({iss,ii,ai,a})=>`
+      <button class="result-item" onclick="goToArticle(${ii},${ai})">
+        <div class="result-meta">${iss.dateLabel} 제${iss.no}호 · ${a.day}요일 · ${esc(a.topic)}</div>
+        <div class="result-title">${esc(a.title)}</div>
+        <div class="result-deck">${esc(a.deck)}</div>
+      </button>`).join("") || '<p class="result-count">해당하는 기사가 아직 없어요.</p>'}
+  </div>`;
+  const inp = document.getElementById("tagSearch");
+  inp.addEventListener("input", e => {
+    browse.q = e.target.value;
+    // 입력 중 커서 유지를 위해 목록만 갱신
+    renderBrowse();
+    const el = document.getElementById("tagSearch");
+    el.focus(); el.setSelectionRange(el.value.length, el.value.length);
+  }, { once: true });
+}
+
 /* 초기 뷰: 평일이면 오늘 기사, 주말이면 전체 */
 function initView(){
-  const t = todayDayIdx();
-  view = (t===null) ? {mode:"all",dayIdx:0} : {mode:"day",dayIdx:t};
+  const t = isFreshLatest() ? todayDayIdx() : null;
+  const count = ISSUES.length ? ISSUES[issueIdx].articles.length : 0;
+  view = (t===null || t>=count) ? {mode:"all",dayIdx:0} : {mode:"day",dayIdx:t};
 }
 boot();
 </script>
