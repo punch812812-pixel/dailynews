@@ -1,0 +1,13 @@
+{
+  "_설명": "이 목록의 도메인에서 나온 기사만 후보로 씁니다. 하위 도메인(news.kbs.co.kr 등)도 자동 포함됩니다. 매체를 추가·삭제하려면 이 파일만 고치면 됩니다.",
+  "domains": [
+    "yna.co.kr", "yonhapnewstv.co.kr",
+    "kbs.co.kr", "imbc.com", "sbs.co.kr", "jtbc.co.kr", "ytn.co.kr", "tvchosun.com", "channela.co.kr", "mbn.co.kr",
+    "chosun.com", "joongang.co.kr", "donga.com", "hani.co.kr", "khan.co.kr",
+    "hankookilbo.com", "seoul.co.kr", "kmib.co.kr", "munhwa.com", "segye.com", "naeil.com",
+    "mk.co.kr", "hankyung.com", "sedaily.com", "fnnews.com", "mt.co.kr",
+    "edaily.co.kr", "asiae.co.kr", "heraldcorp.com", "biz.chosun.com",
+    "newsis.com", "news1.kr", "newspim.com", "ajunews.com", "nocutnews.co.kr",
+    "korea.kr", "dongascience.com", "kidshankook.kr", "kado.net"
+  ]
+}
