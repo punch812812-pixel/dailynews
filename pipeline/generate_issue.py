@@ -250,7 +250,8 @@ GENERATION_SYSTEM = """너는 초등학교 5~6학년을 위한 주간 뉴스 브
 - 요일 배치: 월(생활·안전 등 쉬운 것) → 금(세계·경제 등 어려운 것)으로 난도 상승.
 
 [본문 규격]
-- 각 기사 400~600자(공백 포함), 정확히 3문단:
+- 각 기사 400~600자(공백 포함) — 400자 미만은 불합격이다. 각 문단은 3~5문장, 130~200자.
+- 정확히 3문단:
   ① 무슨 일이 있었나(사실) ② 왜 그런 일이 생겼나(배경·원리) ③ 우리와 무슨 상관인가(영향·의미)
 - 한 문장 30자 내외, 한 문장에 정보 하나. 배경지식을 전제하지 말고 본문 안에서 풀어 설명한다.
 - '원문 발췌'가 제공된 기사는 발췌를 주 재료로 쓴다. 발췌에는 광고·기자 소개·메뉴 등
@@ -322,6 +323,29 @@ def normalize_report_dates(issue, candidates):
             c = next((by_link[u] for _n, u in a.get("sources", []) if u in by_link), None)
         if c and c.get("pub"):
             a["reportDate"] = f"{c['pub']} 보도"
+
+REPAIR_SYSTEM = """너는 초등 뉴스 브리핑의 편집자다. 아래 기사들은 본문이 규격(공백 포함 400~600자)보다
+짧다. 각 기사의 paras(3문단)에 살을 붙여 전체 450~550자로 보강하라.
+규칙: 3문단 구조(사실→배경→상관)와 '~다' 평서형 유지. 함께 제공된 재료(원문 발췌·요약)에
+있는 내용만 쓰고 새 수치를 지어내지 않는다. paras 외의 필드는 한 글자도 바꾸지 않는다.
+출력은 설명 없이 입력과 같은 형식의 JSON: {"articles": [...]}"""
+
+def repair_length(short_articles, candidates):
+    """분량 미달 기사를 재료와 함께 보내 규격 분량으로 확장"""
+    by_id = {c["id"]: c for c in candidates}
+    by_link = {c["link"]: c for c in candidates}
+    blocks = []
+    for a in short_articles:
+        c = by_id.get(a.get("candidate_id")) or next(
+            (by_link[u] for _n, u in a.get("sources", []) if u in by_link), None)
+        mat = ""
+        if c:
+            mat = f"\n[이 기사의 재료]\n요약: {c.get('desc','')}"
+            if c.get("fulltext"):
+                mat += f"\n원문 발췌:\n{c['fulltext']}"
+        blocks.append(json.dumps(a, ensure_ascii=False) + mat)
+    user = "\n\n────\n\n".join(blocks)
+    return parse_json_block(call_gemini(REPAIR_SYSTEM, user))
 
 # ── 2단계: 기계 검증 ─────────────────────────────────
 def validate(issue, standards, candidates):
@@ -462,13 +486,32 @@ def main():
     print(f"   초안 기사 {len(issue.get('articles', []))}건")
 
     print("── 2단계: 기계 검증")
-    passed = []
+    passed, short_only = [], []
     for a, ok, errs in validate(issue, standards, candidates):
-        print(f"   [{a.get('day', '?')}] {a.get('title', '(제목 없음)')[:30]} → {'통과' if ok else '탈락'}")
+        length_only = bool(errs) and all(("본문" in e and "허용" in e) for e in errs)
+        mark = "통과" if ok else ("분량 미달 → 보정 대상" if length_only else "탈락")
+        print(f"   [{a.get('day', '?')}] {a.get('title', '(제목 없음)')[:30]} → {mark}")
         for e in errs:
             print(f"        · {e}")
         if ok:
             passed.append(a)
+        elif length_only:
+            short_only.append(a)
+
+    if short_only:
+        print(f"── 분량 보정 라운드: {len(short_only)}건 확장 시도")
+        try:
+            fixed = with_retry(lambda: repair_length(short_only, candidates), "분량 보정")
+            normalize_report_dates(fixed, candidates)
+            for a, ok, errs in validate(fixed, standards, candidates):
+                body_len = len("".join(a.get("paras", [])))
+                print(f"   [{a.get('day','?')}] 보정 후 {body_len}자 → {'통과' if ok else '탈락 ' + '; '.join(errs)}")
+                if ok:
+                    passed.append(a)
+        except Exception as e:
+            print(f"   분량 보정 실패(해당 기사 제외하고 진행): {e}")
+        # 보정 기사가 뒤에 붙어 순서가 섞였으니 요일 난도 순서로 재정렬
+        passed.sort(key=lambda a: DAYS.index(a["day"]) if a.get("day") in DAYS else 9)
 
     final = passed
     if len(passed) >= MIN_ARTICLES:
