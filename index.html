@@ -31,7 +31,7 @@ header.masthead{padding:34px 0 0;text-align:center}
 .mast-side{font-size:.72rem;color:var(--ink-soft);line-height:1.6;text-align:left;min-width:96px;padding-top:14px}
 .mast-side.right{text-align:right}
 h1.brand{font-family:var(--serif);font-weight:900;font-size:clamp(1.7rem,5.4vw,2.7rem);
-  letter-spacing:.06em;line-height:1.25}
+  letter-spacing:.06em;line-height:1.25;word-break:keep-all}
 h1.brand a{color:inherit;text-decoration:none}
 .slogan{font-size:.85rem;color:var(--ink-soft);margin-top:10px}
 .mast-rule{border:0;border-top:3px solid var(--line);margin:20px 0 0}
@@ -52,10 +52,11 @@ h1.brand a{color:inherit;text-decoration:none}
 .std-strip b{color:var(--red);font-weight:700}
 
 /* ── 시그니처: 요일 시간표 탭 ── */
-.day-tabs{display:grid;grid-template-columns:repeat(6,1fr);border:2px solid var(--line);
+.day-tabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));border:2px solid var(--line);
   margin:26px 0 0;background:var(--paper)}
 .day-tab{appearance:none;border:0;background:transparent;border-right:1px solid var(--line-soft);
-  padding:12px 4px 10px;cursor:pointer;font-family:var(--sans);text-align:center;position:relative}
+  padding:12px 4px 10px;cursor:pointer;font-family:var(--sans);text-align:center;position:relative;
+  min-width:0;overflow:hidden}
 .day-tab:last-child{border-right:0}
 .day-tab .d-name{display:block;font-family:var(--serif);font-weight:700;font-size:1.05rem}
 .day-tab .d-topic{display:block;font-size:.64rem;color:var(--ink-soft);margin-top:2px;
