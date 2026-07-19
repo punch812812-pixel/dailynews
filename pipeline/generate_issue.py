@@ -10,7 +10,7 @@
   3단계 AI 검수:   수위·규격 체크리스트 감사 → 탈락 기사 제거
   4단계 발행 판정: 통과 3건 미만이면 결호(실패 처리 → 알림), 아니면 issues.json에 추가
 """
-import json, os, re, sys, datetime, urllib.request, urllib.parse
+import json, os, re, sys, datetime, urllib.request, urllib.parse, urllib.error
 from email.utils import parsedate_to_datetime
 
 # ── 설정 ─────────────────────────────────────────────
@@ -142,9 +142,14 @@ def call_gemini(system, user, max_tokens=16000):
     with urllib.request.urlopen(req, timeout=600) as r:
         resp = json.loads(r.read())
     try:
-        return resp["candidates"][0]["content"]["parts"][0]["text"]
+        cand = resp["candidates"][0]
+        text = cand["content"]["parts"][0]["text"]
     except (KeyError, IndexError):
         raise RuntimeError(f"Gemini 응답 형식 오류: {json.dumps(resp)[:500]}")
+    finish = cand.get("finishReason", "STOP")
+    if finish != "STOP":
+        raise RuntimeError(f"Gemini 응답이 완결되지 않음 (finishReason={finish})")
+    return text
 
 def parse_json_block(text):
     text = re.sub(r"```json|```", "", text)
@@ -159,6 +164,18 @@ def parse_json_block(text):
             if depth == 0:
                 return json.loads(text[start:i + 1])
     raise ValueError("JSON 괄호가 닫히지 않았습니다")
+
+def with_retry(fn, name, tries=3, wait=20):
+    """일시적 API 오류(잘린 응답, 형식 오류, 네트워크)에 대해 자동 재시도"""
+    import time
+    for attempt in range(1, tries + 1):
+        try:
+            return fn()
+        except (ValueError, RuntimeError, json.JSONDecodeError, urllib.error.URLError) as e:
+            print(f"   {name} {attempt}차 시도 실패: {e}")
+            if attempt == tries:
+                raise
+            time.sleep(wait)
 
 # ── 1단계: 선별·생성 ─────────────────────────────────
 GENERATION_SYSTEM = """너는 초등학교 5~6학년을 위한 주간 뉴스 브리핑의 편집자다.
@@ -303,7 +320,7 @@ def main():
         sys.exit("결호: 수집된 후보가 너무 적습니다")
 
     print(f"── 1단계: 제{last_no + 1}호 선별·생성 (Gemini)")
-    issue = generate_issue(standards, candidates)
+    issue = with_retry(lambda: generate_issue(standards, candidates), "생성")
     print(f"   초안 기사 {len(issue.get('articles', []))}건")
 
     print("── 2단계: 기계 검증")
@@ -319,7 +336,11 @@ def main():
     if len(passed) >= MIN_ARTICLES:
         print("── 3단계: AI 검수")
         issue["articles"] = passed
-        review = ai_review(issue, candidates)
+        try:
+            review = with_retry(lambda: ai_review(issue, candidates), "검수")
+        except Exception as e:
+            sys.exit(f"결호: AI 검수를 3회 시도에도 완료하지 못했습니다 ({e}). "
+                     f"안전을 위해 이번 주는 발행하지 않습니다.")
         verdicts = {r["day"]: r for r in review.get("results", [])}
         final = []
         for a in passed:
