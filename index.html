@@ -180,9 +180,10 @@ footer.pub b{color:var(--ink)}
   .wordhelp dl,.wordhelp .w-item,.thinkbox p{font-size:10.5pt;line-height:1.65}
   .thinkbox{border-left:4px solid #000}
   .thinkbox h3::before{content:"2. "}
-  .std-tags{margin-top:10px;justify-content:flex-end}
-  .std-tag{font-size:8pt;padding:2px 7px;border-color:#999}
-  .std-tag b{color:#333}
+  .std-tags{display:none !important}
+  .ws-std{text-align:right;font-size:8pt;color:#555;margin-top:4px}
+  .ws-std b{color:#333}
+  .wordhelp,.thinkbox,.ws-summary{page-break-inside:avoid;break-inside:avoid}
   .ws-only{display:block}
   .ws-head{display:flex;justify-content:space-between;font-size:9.5pt;
     border-bottom:1.5px solid #000;padding-bottom:3px;margin-bottom:8px}
@@ -281,6 +282,7 @@ function articleHTML(a, issue){
     </div>
     <h2 class="headline">${esc(a.title)}</h2>
     <p class="deck">${esc(a.deck)}</p>
+    <div class="ws-only ws-std">${a.standards.map(([c,l])=>`<b>[${c}]</b> ${esc(l)}`).join(" · ")}</div>
     <hr class="body-rule">
     ${a.paras.map(p=>`<p class="para">${esc(p)}</p>`).join("")}
     <div class="src-links">
