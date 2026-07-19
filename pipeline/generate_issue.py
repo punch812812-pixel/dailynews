@@ -24,6 +24,8 @@ STANDARDS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stand
 MIN_ARTICLES = 3
 BODY_MIN, BODY_MAX = 350, 700
 DAYS = ["월", "화", "수", "목", "금"]
+CATEGORIES = ["안전", "기후·환경", "경제", "법·제도", "인권·권리", "과학·기술", "우주",
+              "세계", "건강", "노동", "디지털·미디어", "민주주의·정치", "복지", "문화·역사", "동물·생명"]
 
 # 수집 검색어 — 자유롭게 추가·수정 가능
 QUERIES = [
@@ -177,7 +179,63 @@ def with_retry(fn, name, tries=3, wait=20):
                 raise
             time.sleep(wait)
 
-# ── 1단계: 선별·생성 ─────────────────────────────────
+# ── 1단계: 선별 ──────────────────────────────────────
+SELECTION_SYSTEM = """너는 초등 5~6학년 뉴스 브리핑의 편집자다. 후보 목록에서 정확히 5건을 고른다.
+기준: 5~6학년군 성취기준(사회·과학·도덕·실과·체육)에 정확히 연계되고 생각을 여는 기사만.
+국내·해외를 섞고, 어린이 생활 직결 기사(안전·또래·어린이 권리)를 최소 1건 포함.
+폭력·피해 묘사가 불가피한 소재, 정치적 진영 대립이 중심인 소재는 제외.
+같은 사안의 중복 기사는 1건만.
+[최근에 이미 다룬 기사] 목록이 주어지면, 같은 사안은 뚜렷한 새 국면(새 결정·새 수치·
+새 사건 전개)이 있을 때만 고르고, 지난 내용의 반복이면 제외한다.
+출력은 설명 없이 JSON만: {"ids": [후보 id 5개 — 월요일감(생활·안전 등 쉬운 것)부터
+금요일감(세계·경제 등 어려운 것) 순서로]}
+"""
+
+def select_candidates(candidates, recent_titles):
+    cand_text = "\n".join(f"#{c['id']} [{c['pub']}] {c['title']} — {c['desc'][:80]}" for c in candidates)
+    recent = "\n".join(f"- {t}" for t in recent_titles) or "- (없음)"
+    user = f"[최근에 이미 다룬 기사]\n{recent}\n\n[후보 목록]\n{cand_text}"
+    data = parse_json_block(call_gemini(SELECTION_SYSTEM, user, max_tokens=2000))
+    ids = [i for i in data.get("ids", []) if isinstance(i, int)][:5]
+    if len(ids) < MIN_ARTICLES:
+        raise ValueError(f"선별 결과가 {len(ids)}건뿐입니다")
+    return ids
+
+# ── 1.5단계: 선정 기사 원문 수집 ─────────────────────
+def fetch_article(link, timeout=25):
+    """기사 원문 본문 추출. 실패하면 None (요약 기반으로 폴백)"""
+    req = urllib.request.Request(link, headers={
+        "User-Agent": "Mozilla/5.0 (compatible; NewsBriefBot/1.0; +education)"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read()
+    except Exception:
+        return None
+    html = None
+    for enc in ("utf-8", "euc-kr", "cp949"):
+        try:
+            html = raw.decode(enc)
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+    if html is None:
+        html = raw.decode("utf-8", "ignore")
+    # 스크립트·스타일 제거 → article 태그 우선 → 태그 제거 → 짧은 잡음 줄 제거
+    html = re.sub(r"<(script|style|noscript)[^>]*>[\s\S]*?</\1>", " ", html, flags=re.I)
+    m = re.search(r"<article[^>]*>([\s\S]*?)</article>", html, flags=re.I)
+    if m:
+        html = m.group(1)
+    text = re.sub(r"<br\s*/?>|</p>|</div>", "\n", html, flags=re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    for a, b in [("&nbsp;", " "), ("&quot;", '"'), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&#39;", "'")]:
+        text = text.replace(a, b)
+    lines = [re.sub(r"[ \t]+", " ", l).strip() for l in text.split("\n")]
+    body = "\n".join(l for l in lines if len(l) >= 15)
+    if len(body) < 300:          # 본문이라 하기엔 너무 짧으면 실패 처리
+        return None
+    return body[:3500]
+
+# ── 2단계: 집필 ──────────────────────────────────────
 GENERATION_SYSTEM = """너는 초등학교 5~6학년을 위한 주간 뉴스 브리핑의 편집자다.
 제공된 후보 기사 목록에서 5건을 선별하고, 아래 규격에 따라 호(issue) JSON을 만든다.
 
@@ -195,8 +253,11 @@ GENERATION_SYSTEM = """너는 초등학교 5~6학년을 위한 주간 뉴스 브
 - 각 기사 400~600자(공백 포함), 정확히 3문단:
   ① 무슨 일이 있었나(사실) ② 왜 그런 일이 생겼나(배경·원리) ③ 우리와 무슨 상관인가(영향·의미)
 - 한 문장 30자 내외, 한 문장에 정보 하나. 배경지식을 전제하지 말고 본문 안에서 풀어 설명한다.
-- 후보의 제목·요약을 재료로 재서술한다. 원문 문장을 그대로 옮기지 않는다.
-- 요약에 없는 구체 수치를 지어내지 않는다. 확실한 정보만 쓴다.
+- '원문 발췌'가 제공된 기사는 발췌를 주 재료로 쓴다. 발췌에는 광고·기자 소개·메뉴 등
+  잡음이 섞여 있을 수 있으니 기사 본문만 골라 쓴다.
+- 발췌든 요약이든 원문 문장을 그대로 옮기지 않는다. 연속 15자 이상 동일한 표현이
+  나오지 않게 완전히 새로 쓴다.
+- 제공된 재료(발췌·요약)에 없는 구체 수치를 지어내지 않는다. 확실한 정보만 쓴다.
 - 제목 + 부제 1줄. 부제에는 핵심 사실이나 뜻밖의 지점을 넣는다.
 - 모든 문장은 '~다'로 끝나는 평서형으로 쓴다. '~습니다'체를 쓰지 않는다.
 - topic은 2~10자의 짧은 주제 라벨이다 (예: "안전 · 기후", "경제", "세계 · 지리").
@@ -207,7 +268,10 @@ GENERATION_SYSTEM = """너는 초등학교 5~6학년을 위한 주간 뉴스 브
 - think: 자기 연결형 발문 1개 ("나라면", "우리 반이라면", "직접 찾아보자")
 - standards: 기사당 정확히 2개 [코드, 짧은 라벨]. 주 1 + 보조 1.
   제공된 성취기준 목록에 실제로 존재하는 코드만 쓴다. 국어(국) 코드는 쓰지 않는다.
-- tags: 기사당 3~4개
+- tags: 기사당 3~4개. 첫 번째 태그는 반드시 다음 대주제 목록에서 하나를 그대로 고른다:
+  안전, 기후·환경, 경제, 법·제도, 인권·권리, 과학·기술, 우주, 세계, 건강, 노동,
+  디지털·미디어, 민주주의·정치, 복지, 문화·역사, 동물·생명.
+  두 번째부터는 기사 고유의 구체 낱말 태그.
 - sources: [["언론사명 또는 매체", "<후보의 link 그대로>"]] — 반드시 선택한 후보의 link를 한 글자도 바꾸지 않고 쓴다.
 - 각 기사에 "candidate_id": <선택한 후보의 id 숫자> 필드를 포함한다.
 
@@ -219,13 +283,18 @@ GENERATION_SYSTEM = """너는 초등학교 5~6학년을 위한 주간 뉴스 브
   "standards": [["6사02-01", "라벨"]], "tags": ["..."], "sources": [["매체명", "https://..."]]}]}
 """
 
-def generate_issue(standards, candidates):
+def generate_issue(standards, picked):
     std56 = {k: v for k, v in standards.items() if k.startswith("[6") and not k.startswith("[6국")}
     std_text = "\n".join(f"{k} {v}" for k, v in sorted(std56.items()))
-    cand_text = "\n".join(
-        f"#{c['id']} [{c['pub']}] {c['title']}\n   요약: {c['desc']}\n   link: {c['link']}"
-        for c in candidates)
-    user = (f"[후보 기사 목록]\n{cand_text}\n\n[사용 가능한 성취기준 목록]\n{std_text}")
+    blocks = []
+    for c in picked:
+        b = f"#{c['id']} [{c['pub']}] {c['title']}\n   link: {c['link']}\n   요약: {c['desc']}"
+        if c.get("fulltext"):
+            b += f"\n   원문 발췌:\n{c['fulltext']}"
+        blocks.append(b)
+    user = (f"다음 {len(picked)}건을 주어진 순서 그대로 월요일부터 기사로 만들어라.\n\n"
+            + "\n\n".join(blocks)
+            + f"\n\n[사용 가능한 성취기준 목록]\n{std_text}")
     return parse_json_block(call_gemini(GENERATION_SYSTEM, user))
 
 def generate_supplement(standards, candidates, exclude_ids, existing, need):
@@ -246,6 +315,7 @@ def generate_supplement(standards, candidates, exclude_ids, existing, need):
 # ── 2단계: 기계 검증 ─────────────────────────────────
 def validate(issue, standards, candidates):
     cand_links = {c["link"] for c in candidates}
+    link_full = {c["link"]: c.get("fulltext") for c in candidates}
     results = []
     for a in issue.get("articles", []):
         errs = []
@@ -270,6 +340,8 @@ def validate(issue, standards, candidates):
             errs.append(f"낱말 도움 {len(a['words'])}개")
         if len(a["standards"]) != 2:
             errs.append(f"성취기준 {len(a['standards'])}개 (2개여야 함)")
+        if not a["tags"] or a["tags"][0] not in CATEGORIES:
+            errs.append(f"첫 태그가 대주제 목록에 없음: {a['tags'][:1]}")
         for code, _label in a["standards"]:
             key = f"[{code}]" if not code.startswith("[") else code
             if key not in standards:
@@ -282,6 +354,21 @@ def validate(issue, standards, candidates):
             for _n, u in a["sources"]:
                 if u not in cand_links:
                     errs.append("출처 URL이 수집 후보 목록에 없음 (조작·오류 가능)")
+        # 원문이 있는 기사: 원문 문장을 그대로 옮겼는지 검사 (연속 20자 일치)
+        ft = next((link_full.get(u) for _n, u in a["sources"] if link_full.get(u)), None)
+        if ft:
+            ft_norm = re.sub(r"\s+", "", ft)
+            copied = False
+            for p in a["paras"]:
+                pn = re.sub(r"\s+", "", p)
+                for i in range(0, max(1, len(pn) - 20), 10):
+                    if pn[i:i + 20] in ft_norm:
+                        copied = True
+                        break
+                if copied:
+                    break
+            if copied:
+                errs.append("원문 문장을 그대로 옮김 (재서술 필요)")
         # 보도일이 발행일(오늘)보다 미래이면 오류 — AI의 날짜 오기 방지
         m = re.search(r"(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})", a["reportDate"])
         if not m:
@@ -335,11 +422,31 @@ def main():
     print("── 0단계: 네이버 뉴스 수집")
     candidates = collect_candidates()
     print(f"   후보 {len(candidates)}건")
+    # 과거 호에서 이미 쓴 기사 URL은 후보에서 제외 (같은 기사 재등장 차단)
+    published = {u for iss in issues for a in iss.get("articles", []) for _n, u in a.get("sources", [])}
+    before = len(candidates)
+    candidates = [c for c in candidates if c["link"] not in published]
+    if before - len(candidates):
+        print(f"   이미 발행한 기사 {before - len(candidates)}건 제외")
     if len(candidates) < 10:
         sys.exit("결호: 수집된 후보가 너무 적습니다")
 
-    print(f"── 1단계: 제{last_no + 1}호 선별·생성 (Gemini)")
-    issue = with_retry(lambda: generate_issue(standards, candidates), "생성")
+    # 최근 4주 발행 제목 — 같은 사안 반복 억제용
+    recent_titles = [a["title"] for iss in issues[-4:] for a in iss.get("articles", [])]
+
+    print(f"── 1단계: 제{last_no + 1}호 선별 (Gemini)")
+    ids = with_retry(lambda: select_candidates(candidates, recent_titles), "선별")
+    by_id = {c["id"]: c for c in candidates}
+    picked = [by_id[i] for i in ids if i in by_id]
+    print(f"   선정 {len(picked)}건")
+
+    print("── 1.5단계: 선정 기사 원문 수집")
+    for c in picked:
+        c["fulltext"] = fetch_article(c["link"])
+        print(f"   #{c['id']} {'원문 확보' if c['fulltext'] else '실패 → 요약으로 폴백'} — {c['title'][:28]}")
+
+    print(f"── 2단계 전: 집필 (Gemini)")
+    issue = with_retry(lambda: generate_issue(standards, picked), "집필")
     print(f"   초안 기사 {len(issue.get('articles', []))}건")
 
     print("── 2단계: 기계 검증")
@@ -374,7 +481,7 @@ def main():
         print(f"── 보충 라운드: {need}건 보충 시도")
         try:
             used = {a.get("candidate_id") for a in issue["articles"]}
-            titles = [a["title"] for a in final]
+            titles = [a["title"] for a in final] + recent_titles
             supp = with_retry(lambda: generate_supplement(standards, candidates, used, titles, need), "보충 생성")
             supp_passed = []
             for a, ok, errs in validate(supp, standards, candidates):
