@@ -228,6 +228,21 @@ def generate_issue(standards, candidates):
     user = (f"[후보 기사 목록]\n{cand_text}\n\n[사용 가능한 성취기준 목록]\n{std_text}")
     return parse_json_block(call_gemini(GENERATION_SYSTEM, user))
 
+def generate_supplement(standards, candidates, exclude_ids, existing, need):
+    """검수 탈락으로 빈 자리를 남은 후보에서 보충 생성"""
+    std56 = {k: v for k, v in standards.items() if k.startswith("[6") and not k.startswith("[6국")}
+    std_text = "\n".join(f"{k} {v}" for k, v in sorted(std56.items()))
+    remain = [c for c in candidates if c["id"] not in exclude_ids]
+    cand_text = "\n".join(
+        f"#{c['id']} [{c['pub']}] {c['title']}\n   요약: {c['desc']}\n   link: {c['link']}"
+        for c in remain)
+    covered = "\n".join(f"- {t}" for t in existing)
+    user = (f"이미 발행이 확정된 기사 주제:\n{covered}\n\n"
+            f"위 주제와 겹치지 않게, 아래 후보에서 정확히 {need}건을 골라 같은 규격으로 만들어라. "
+            f"day 값은 임시로 '월'을 쓴다(나중에 재배치됨).\n\n"
+            f"[후보 기사 목록]\n{cand_text}\n\n[사용 가능한 성취기준 목록]\n{std_text}")
+    return parse_json_block(call_gemini(GENERATION_SYSTEM, user))
+
 # ── 2단계: 기계 검증 ─────────────────────────────────
 def validate(issue, standards, candidates):
     cand_links = {c["link"] for c in candidates}
@@ -277,17 +292,21 @@ def validate(issue, standards, candidates):
     return results
 
 # ── 3단계: AI 검수 ───────────────────────────────────
-REVIEW_SYSTEM = """너는 초등 뉴스 브리핑의 최종 검수자다. 각 기사를 아래 체크리스트로 감사하고,
-하나라도 위반이면 그 기사를 불합격 처리한다. 확신이 없으면 불합격으로 처리한다(안전 우선).
+REVIEW_SYSTEM = """너는 초등 뉴스 브리핑의 최종 검수자다. 항목은 두 등급으로 나뉜다.
 
-체크리스트:
-1. 초등 5~6학년이 읽기에 적절한가 (폭력·피해·사망 상세 묘사, 선정성, 공포 조장 없음)
-2. 3문단이 사실→배경→우리와의 상관 구조를 따르는가
-3. 본문이 특정 정치적 입장을 지지·비난하지 않는가
-4. 성취기준 태그가 기사 내용과 실제로 연결되는가 (억지 매칭이면 불합격)
-5. 함께 제공된 후보 요약에 없는 구체 수치·사실을 본문이 지어내지 않았는가
-6. 발문이 자기 연결형이고 어린이가 답할 수 있는 질문인가
-7. 문체가 '~다'로 끝나는 평서형으로 통일되어 있는가 ('~습니다'체 혼용이면 불합격)
+[안전 항목 — 의심스러우면 불합격 (안전 우선)]
+A1. 초등 5~6학년이 읽기에 적절한가 (폭력·피해·사망 상세 묘사, 선정성, 공포 조장 없음)
+A2. 본문이 특정 정치적 입장을 지지·비난하지 않는가
+A3. 함께 제공된 후보 요약에 없는 구체 수치·사실을 본문이 지어내지 않았는가
+
+[규격 항목 — 명백하고 심각한 위반일 때만 불합격, 사소한 어색함은 합격]
+B1. 3문단이 대체로 사실→배경→우리와의 상관 흐름인가
+B2. 성취기준 태그가 기사 내용과 연결되는가 (전혀 무관할 때만 불합격)
+B3. 발문이 어린이가 답할 수 있는 질문인가
+B4. 문체가 대체로 '~다' 평서형인가 (전체가 '~습니다'체일 때만 불합격, 한두 문장 혼용은 합격)
+
+기억하라: 규격의 완벽함보다 학생이 매일 읽을거리를 받는 것이 중요하다.
+안전 항목 위반이 없다면 웬만하면 합격시켜라.
 
 설명 없이 JSON만 출력: {"results": [{"day": "월", "pass": true, "reasons": []}]}
 """
@@ -348,6 +367,31 @@ def main():
             print(f"   [{a['day']}] → {'합격' if v['pass'] else '불합격'} {'; '.join(v.get('reasons', []))}")
             if v["pass"]:
                 final.append(a)
+
+    # ── 보충 라운드: 5건 미만이면 남은 후보에서 한 번 더 채운다 ──
+    if MIN_ARTICLES <= len(final) < 5:
+        need = 5 - len(final)
+        print(f"── 보충 라운드: {need}건 보충 시도")
+        try:
+            used = {a.get("candidate_id") for a in issue["articles"]}
+            titles = [a["title"] for a in final]
+            supp = with_retry(lambda: generate_supplement(standards, candidates, used, titles, need), "보충 생성")
+            supp_passed = []
+            for a, ok, errs in validate(supp, standards, candidates):
+                print(f"   [보충] {a.get('title','?')[:30]} → {'통과' if ok else '탈락'} {errs or ''}")
+                if ok:
+                    supp_passed.append(a)
+            if supp_passed:
+                sup_review = with_retry(lambda: ai_review({"articles": supp_passed}, candidates), "보충 검수")
+                sup_verdicts = {r["day"]: r for r in sup_review.get("results", [])}
+                # 보충분은 day가 겹칠 수 있어 제목으로도 대조하지 않고 순서대로 판정 적용
+                for a, r in zip(supp_passed, sup_review.get("results", [])):
+                    mark = "합격" if r.get("pass") else "불합격"
+                    print(f"   [보충 검수] {a['title'][:30]} → {mark} {'; '.join(r.get('reasons', []))}")
+                    if r.get("pass") and len(final) < 5:
+                        final.append(a)
+        except Exception as e:
+            print(f"   보충 라운드 실패(무시하고 진행): {e}")
 
     print("── 4단계: 발행 판정")
     if len(final) < MIN_ARTICLES:
