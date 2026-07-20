@@ -26,6 +26,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}   # 비워두면 자동 탐지, 지정하면 그 모델 고정
         run: python pipeline/generate_issue.py
 
       - name: 자동 커밋·배포
