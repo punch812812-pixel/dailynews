@@ -99,36 +99,45 @@ def collect_candidates(days=7, cap=60):
     return out[:cap]
 
 # ── Gemini 호출 ──────────────────────────────────────
-_model_cache = None
+_model_list, _model_idx = [], 0
 
 def pick_model():
-    """구글 API에서 현재 사용 가능한 모델 목록을 받아 flash 계열 최신 모델을 자동 선택"""
-    global _model_cache
-    if _model_cache:
-        return _model_cache
-    if GEMINI_MODEL:                       # 환경변수로 지정했으면 그대로 사용
-        _model_cache = GEMINI_MODEL
-        return _model_cache
+    """사용 가능 모델을 순위 목록으로 확보. 번호 버전(안정) 우선, 'latest' 별칭은 예비"""
+    global _model_list
+    if _model_list:
+        return _model_list[_model_idx]
+    if GEMINI_MODEL:
+        _model_list = [GEMINI_MODEL]
+        return GEMINI_MODEL
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}&pageSize=200"
     with urllib.request.urlopen(url, timeout=60) as r:
         models = json.loads(r.read()).get("models", [])
     names = []
     for m in models:
         name = m.get("name", "").replace("models/", "")
-        methods = m.get("supportedGenerationMethods", [])
-        if "generateContent" not in methods:
+        if "generateContent" not in m.get("supportedGenerationMethods", []):
             continue
         if "flash" not in name:
             continue
-        # 특수 용도(이미지·음성·실시간·경량 8b 등) 제외
         if any(x in name for x in ["image", "tts", "live", "audio", "8b", "lite", "exp", "preview", "thinking"]):
             continue
         names.append(name)
     if not names:
         raise RuntimeError("사용 가능한 flash 모델을 찾지 못했습니다. GEMINI_MODEL 환경변수로 직접 지정하세요.")
-    _model_cache = sorted(names)[-1]       # 버전 숫자가 큰 것이 뒤로 정렬됨
-    print(f"   사용 모델: {_model_cache}")
-    return _model_cache
+    numbered = sorted([n for n in names if "latest" not in n], reverse=True)  # 3.0 > 2.5
+    aliases = [n for n in names if "latest" in n]
+    _model_list = numbered + aliases
+    print(f"   사용 모델: {_model_list[0]} (예비 {len(_model_list)-1}개)")
+    return _model_list[0]
+
+def switch_model():
+    """현재 모델이 장애일 때 다음 후보로 전환. 전환했으면 True"""
+    global _model_idx
+    if _model_idx < len(_model_list) - 1:
+        _model_idx += 1
+        print(f"   모델 전환 → {_model_list[_model_idx]}")
+        return True
+    return False
 
 def call_gemini(system, user, max_tokens=16000):
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -174,9 +183,16 @@ def with_retry(fn, name, tries=3, wait=20):
         try:
             return fn()
         except (ValueError, RuntimeError, json.JSONDecodeError, urllib.error.URLError) as e:
-            rate_limited = "429" in str(e)
-            delay = 75 if rate_limited else wait
-            note = " — 호출 한도 초과, 75초 대기 후 재시도" if rate_limited else ""
+            msg = str(e)
+            if "429" in msg:
+                delay, note = 75, " — 호출 한도 초과, 75초 대기 후 재시도"
+            elif any(c in msg for c in ("500", "502", "503", "504")):
+                if switch_model():
+                    delay, note = 10, " — 서버 장애, 예비 모델로 전환하여 재시도"
+                else:
+                    delay, note = 90, " — 구글 서버 일시 장애, 90초 대기 후 재시도"
+            else:
+                delay, note = wait, ""
             print(f"   {name} {attempt}차 시도 실패: {e}{note}")
             if attempt == tries:
                 raise
