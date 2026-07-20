@@ -189,7 +189,11 @@ def with_retry(fn, name, tries=4, wait=20):
         except (ValueError, RuntimeError, json.JSONDecodeError, urllib.error.URLError) as e:
             msg = str(e)
             if "429" in msg:
-                delay, note = 75, " — 호출 한도 초과, 75초 대기 후 재시도"
+                # 한도는 모델별로 따로이므로 다른 모델의 남은 한도를 먼저 시도
+                if switch_model():
+                    delay, note = 10, " — 이 모델 한도 소진, 예비 모델로 전환"
+                else:
+                    delay, note = 75, " — 호출 한도 초과, 75초 대기 후 재시도"
             elif "404" in msg:
                 if switch_model():
                     delay, note = 5, " — 이 모델은 호출 불가, 예비 모델로 전환"
