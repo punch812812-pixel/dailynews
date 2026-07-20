@@ -127,7 +127,7 @@ def pick_model():
     numbered = sorted([n for n in names if "latest" not in n], reverse=True)  # 3.0 > 2.5
     aliases = [n for n in names if "latest" in n]
     _model_list = numbered + aliases
-    print(f"   사용 모델: {_model_list[0]} (예비 {len(_model_list)-1}개)")
+    print(f"   모델 후보: {', '.join(_model_list)}")
     return _model_list[0]
 
 def switch_model():
@@ -140,8 +140,9 @@ def switch_model():
     return False
 
 def call_gemini(system, user, max_tokens=16000):
+    model = pick_model()
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"{pick_model()}:generateContent?key={GEMINI_KEY}")
+           f"{model}:generateContent?key={GEMINI_KEY}")
     body = {
         "system_instruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
@@ -150,8 +151,11 @@ def call_gemini(system, user, max_tokens=16000):
     }
     req = urllib.request.Request(url, data=json.dumps(body).encode(),
                                  headers={"content-type": "application/json"})
-    with urllib.request.urlopen(req, timeout=600) as r:
-        resp = json.loads(r.read())
+    try:
+        with urllib.request.urlopen(req, timeout=600) as r:
+            resp = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"HTTP {e.code} {e.reason} (모델: {model})")
     try:
         cand = resp["candidates"][0]
         text = cand["content"]["parts"][0]["text"]
@@ -176,7 +180,7 @@ def parse_json_block(text):
                 return json.loads(text[start:i + 1])
     raise ValueError("JSON 괄호가 닫히지 않았습니다")
 
-def with_retry(fn, name, tries=3, wait=20):
+def with_retry(fn, name, tries=4, wait=20):
     """일시적 API 오류에 자동 재시도. 429(호출 한도)는 분당 한도 리셋을 기다려 75초 대기"""
     import time
     for attempt in range(1, tries + 1):
@@ -186,6 +190,11 @@ def with_retry(fn, name, tries=3, wait=20):
             msg = str(e)
             if "429" in msg:
                 delay, note = 75, " — 호출 한도 초과, 75초 대기 후 재시도"
+            elif "404" in msg:
+                if switch_model():
+                    delay, note = 5, " — 이 모델은 호출 불가, 예비 모델로 전환"
+                else:
+                    delay, note = 5, " — 예비 모델 소진. 저장소 Variables에 GEMINI_MODEL로 모델명을 직접 지정하세요"
             elif any(c in msg for c in ("500", "502", "503", "504")):
                 if switch_model():
                     delay, note = 10, " — 서버 장애, 예비 모델로 전환하여 재시도"
