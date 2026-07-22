@@ -298,7 +298,10 @@ GENERATION_SYSTEM = """너는 초등학교 5~6학년을 위한 주간 뉴스 브
 
 [부속 요소]
 - words: 기사당 2~3개 [낱말, 어린이 눈높이 풀이]
-- think: 자기 연결형 발문 1개 ("나라면", "우리 반이라면", "직접 찾아보자")
+- think: 자기 연결형 발문 1개. 반드시 어린이에게 묻는 질문형 존댓말로 쓰고
+  물음표로 끝낸다. (예: "나라면 어떤 놀이기구를 만들어 보고 싶나요?",
+  "우리 반이라면 어떻게 할 수 있을까요?") "~해 보자", "~적어 보자" 같은
+  청유형으로 쓰지 않는다.
 - standards: 기사당 정확히 2개 [코드, 짧은 라벨]. 주 1 + 보조 1.
   제공된 성취기준 목록에 실제로 존재하는 코드만 쓴다. 국어(국) 코드는 쓰지 않는다.
 - tags: 기사당 3~4개. 첫 번째 태그는 반드시 다음 대주제 목록에서 하나를 그대로 고른다:
@@ -409,6 +412,8 @@ def validate(issue, standards, candidates):
             errs.append(f"성취기준 {len(a['standards'])}개 (2개여야 함)")
         if not a["tags"] or a["tags"][0] not in CATEGORIES:
             errs.append(f"첫 태그가 대주제 목록에 없음: {a['tags'][:1]}")
+        if not a["think"].strip().endswith("?"):
+            errs.append("생각해 보기가 질문형(물음표 종결)이 아님")
         for code, _label in a["standards"]:
             key = f"[{code}]" if not code.startswith("[") else code
             if key not in standards:
